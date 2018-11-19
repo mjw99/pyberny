@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 import os
+from io import StringIO
 from itertools import chain, groupby, product, repeat
 
 import numpy as np
@@ -10,10 +11,7 @@ from numpy.linalg import inv, norm
 
 from .species_data import get_property
 
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from io import StringIO
+__version__ = '0.1.0'
 
 
 class Geometry(object):
@@ -44,7 +42,7 @@ class Geometry(object):
         :param list lattice: list of lattice vectors (None for a moleucle)
         """
         species = [sp for sp, _ in atoms]
-        coords = [np.array(coord)*unit for _, coord in atoms]
+        coords = [np.array(coord, dtype=float)*unit for _, coord in atoms]
         return cls(species, coords, lattice)
 
     def __repr__(self):
@@ -124,12 +122,14 @@ class Geometry(object):
         :param str filename: path that will be overwritten
         """
         ext = os.path.splitext(filename)[1]
-        if ext == 'xyz':
+        if ext == '.xyz':
             fmt = 'xyz'
-        elif ext == 'aims' or os.path.basename(filename) == 'geometry.in':
+        elif ext == '.aims' or os.path.basename(filename) == 'geometry.in':
             fmt = 'aims'
-        elif ext == 'mopac':
+        elif ext == '.mopac':
             fmt = 'mopac'
+        else:
+            raise ValueError('Unknown file extension')
         with open(filename, 'w') as f:
             self.dump(f, fmt)
 
@@ -185,6 +185,8 @@ class Geometry(object):
         Returns :math:`R_{ij}:=|\mathbf R_i-\mathbf R_j|` and
         :math:`R_{ij\alpha}:=(\mathbf R_i)_\alpha-(\mathbf R_j)_\alpha`.
         """
+        if other is None:
+            other = self
         diff = self.coords[:, None, :]-other.coords[None, :, :]
         dist = np.sqrt(np.sum(diff**2, 2))
         dist[np.diag_indices(len(self))] = np.inf
@@ -205,13 +207,14 @@ class Geometry(object):
         """
         dist = self.dist(self)
         radii = np.array([get_property(sp, 'covalent_radius') for sp in self.species])
-        return dist < 1.3*(radii[None, :]+radii[:, None])
+        return dist < scale*(radii[None, :]+radii[:, None])
 
     def rho(self):
         r"""
         Calculates a measure of covalentness.
 
-        Returns :math:`\rho_{ij}:=\exp\big(-R_{ij}/(R_i^\text{cov}+R_j^\text{cov})\big)`.
+        Returns
+        :math:`\rho_{ij}:=\exp\big(-R_{ij}/(R_i^\text{cov}+R_j^\text{cov})\big)`.
         """
         geom = self.supercell()
         dist = geom.dist(geom)
@@ -232,8 +235,9 @@ class Geometry(object):
     @property
     def inertia(self):
         r"""Calculates the moment of inertia, :math:`I_{\alpha\beta}:=
-        \sum_im_i\big(r_i^2\delta_{\alpha\beta}-(\mathbf r_i)_\alpha(\mathbf r_i)_\beta\big)`
-        where :math:`\mathbf r_i=\mathbf R_i-\mathbf R_\text{CMS}`."""
+        \sum_im_i\big(r_i^2\delta_{\alpha\beta}-(\mathbf r_i)_\alpha(\mathbf
+        r_i)_\beta\big)` where :math:`\mathbf r_i=\mathbf R_i-\mathbf
+        R_\text{CMS}`."""
         coords_w = np.sqrt(self.masses)[:, None]*(self.coords-self.cms)
         A = np.array([np.diag(np.full(3, r)) for r in np.sum(coords_w**2, 1)])
         B = coords_w[:, :, None]*coords_w[:, None, :]
